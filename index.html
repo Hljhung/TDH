@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Game tính nhẩm (By TDH HK65) </title>
+  <title>Game tính nhẩm (By TDH HK65)</title>
   <style>
     :root{
-      --page-bg:#d0ebff; /* phông nền xanh nhạt theo yêu cầu */
+      --page-bg:#d0ebff;
       --card:#ffffff;
       --accent:#0f62fe;
       --muted:#475569;
-      --good:#16a34a; /* xanh lá cho + điểm */
-      --bad:#dc2626;  /* đỏ cho +0 */
-      --answer:#f97316; /* cam cho đáp án đúng hiện khi sai */
+      --good:#16a34a;
+      --bad:#dc2626;
+      --answer:#f97316;
     }
     *{box-sizing:border-box}
     body{margin:0;font-family:Inter,system-ui,Arial;background:var(--page-bg);color:#07203b;display:flex;align-items:center;justify-content:center;min-height:100vh}
@@ -32,12 +32,9 @@
     .small{font-size:13px;padding:6px 8px;border-radius:8px}
     .ops button{margin-right:8px;margin-bottom:8px}
     .badge{display:inline-block;padding:6px 8px;border-radius:8px;background:#f1f5f9;color:var(--muted);font-size:13px}
-    /* score burst styling */
     .score-inline{display:inline-flex;align-items:center;gap:6px}
     #scoreBurst{display:inline-block;font-weight:700;margin-left:6px;visibility:hidden;transform:scale(0.8);transition:transform 0.1s ease, opacity 0.12s ease;opacity:0}
-    /* correct answer reveal */
     #correctReveal{display:block;margin-top:8px;font-weight:600;color:var(--answer);visibility:hidden;opacity:0;transition:opacity 0.08s linear}
-    /* modal */
     .modal-backdrop{position:fixed;inset:0;background:rgba(3,7,18,0.5);display:flex;align-items:center;justify-content:center;z-index:60}
     .modal{background:white;padding:20px;border-radius:12px;max-width:420px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(2,6,23,0.3)}
     @media (max-width:880px){.grid{grid-template-columns:1fr}.question{font-size:26px}}
@@ -126,8 +123,9 @@
 
   <div id="modalRoot" style="display:none"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
   <script>
-    // Elements
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const timeSelect = document.getElementById('timeSelect');
@@ -150,21 +148,15 @@
     const correctReveal = document.getElementById('correctReveal');
     const correctText = document.getElementById('correctText');
 
-    // State
-    let playing = false;
-    let timeLimit = parseInt(timeSelect.value, 10);
-    let timeLeft = timeLimit;
-    let timer = null;
-    let totalScore = 0;
-    let streak = 0;
-    let currentQ = null;
+    let playing = false, timeLimit = parseInt(timeSelect.value, 10), timeLeft = timeLimit, timer = null;
+    let totalScore = 0, streak = 0, currentQ = null;
     let ops = { add:true, sub:true, mul:false, div:false };
-    let diffLevel = 1; // 1,2,3
+    let diffLevel = 1;
     const LB_KEY = 'mental_math_lb_v4';
 
-    // Leaderboard helpers
     function getLB(){ try { return JSON.parse(localStorage.getItem(LB_KEY) || '[]'); } catch { return []; } }
     function saveLB(arr){ localStorage.setItem(LB_KEY, JSON.stringify(arr.slice(0,10))); renderLB(); }
+
     function renderLB(){
       const lb = getLB();
       leaderList.innerHTML = '';
@@ -173,265 +165,112 @@
         const li = document.createElement('li');
         li.textContent = `${i+1}. ${e.name} — ${e.score} điểm`;
         li.style.padding = '6px'; li.style.borderRadius = '8px'; li.style.marginBottom = '8px'; li.style.background = '#f8fbff';
+        const colors = ['#00bfff','#ffd700','#c0c0c0','#cd7f32','#555555'];
+        if(i < 5) li.style.color = colors[i];
         leaderList.appendChild(li);
       });
     }
     renderLB();
 
-    // Utils
     function randInt(min,max){ return Math.floor(Math.random()*(max-min+1)) + min; }
     function getSelectedDiff(){ for(const r of diffRadios) if(r.checked) return parseInt(r.value,10); return 1; }
-    function pickOp(){
-      const enabled = Object.keys(ops).filter(k => ops[k]);
-      if(enabled.length === 0) return 'add';
-      return enabled[randInt(0, enabled.length - 1)];
-    }
-    function rangeFor(diff){
-      if(diff === 1) return {min:1, max:9};
-      if(diff === 2) return {min:10, max:99};
-      return {min:100, max:999};
-    }
-    function countSelectedOps(){ return Object.values(ops).filter(Boolean).length || 1; }
+    function pickOp(){ const enabled = Object.keys(ops).filter(k=>ops[k]); return enabled[randInt(0, enabled.length-1)]||'add'; }
+    function rangeFor(d){ return d===1?{min:1,max:9}:d===2?{min:10,max:99}:{min:100,max:999}; }
+    function countSelectedOps(){ return Object.values(ops).filter(Boolean).length||1; }
 
     function genQuestion(){
-      const r = rangeFor(diffLevel);
-      const op = pickOp();
-      let a,b,correct;
-
-      if(op === 'add'){
-        a = randInt(r.min, r.max); b = randInt(r.min, r.max); correct = a + b;
-      } else if(op === 'sub'){
-        a = randInt(r.min, r.max); b = randInt(r.min, Math.min(a, r.max)); correct = a - b;
-      } else if(op === 'mul'){
-        // keep multiplier moderate
-        a = randInt(r.min, Math.max(r.min, Math.floor(r.max/4)));
-        b = randInt(1, 9);
-        correct = a * b;
-      } else if(op === 'div'){
-        b = randInt(1, 9);
-        const q = randInt(Math.max(1, Math.floor(r.min / Math.max(1,b))), Math.max(1, Math.floor(r.max / Math.max(1,b))));
-        a = q * b; correct = q;
-      } else {
-        a = randInt(r.min, r.max); b = randInt(r.min, r.max); correct = a + b;
-      }
-      return { a, b, op, correct };
+      const r = rangeFor(diffLevel); const op = pickOp(); let a,b,correct;
+      if(op==='add'){a=randInt(r.min,r.max);b=randInt(r.min,r.max);correct=a+b;}
+      else if(op==='sub'){a=randInt(r.min,r.max);b=randInt(r.min,Math.min(a,r.max));correct=a-b;}
+      else if(op==='mul'){a=randInt(r.min,Math.max(r.min,Math.floor(r.max/4)));b=randInt(1,9);correct=a*b;}
+      else if(op==='div'){b=randInt(1,9);const q=randInt(Math.max(1,Math.floor(r.min/b)),Math.max(1,Math.floor(r.max/b)));a=q*b;correct=q;}
+      else {a=randInt(r.min,r.max);b=randInt(r.min,r.max);correct=a+b;}
+      return {a,b,op,correct};
     }
+    function formatQ(q){const sym=q.op==='add'?'+':q.op==='sub'?'−':q.op==='mul'?'×':'÷';return `${q.a} ${sym} ${q.b} = ?`;}
+    function pointsPerCorrect(){const pts=Math.round(90/timeLimit*diffLevel*countSelectedOps());return Math.max(1,pts);}
 
-    function formatQ(q){
-      if(!q) return '';
-      const sym = (q.op === 'add') ? '+' : (q.op === 'sub') ? '−' : (q.op === 'mul') ? '×' : '÷';
-      return `${q.a} ${sym} ${q.b} = ?`;
+    function showScoreBurst(value,positive){
+      scoreBurst.textContent=value;scoreBurst.style.visibility='visible';scoreBurst.style.opacity='1';
+      scoreBurst.style.transform='scale(1.5)';scoreBurst.style.color=positive?'var(--good)':'var(--bad)';
+      setTimeout(()=>{scoreBurst.style.transform='scale(0.95)';scoreBurst.style.opacity='0';
+      setTimeout(()=>{scoreBurst.style.visibility='hidden';},120);},100);
     }
+    function showCorrectReveal(c){correctText.textContent=c;correctReveal.style.visibility='visible';correctReveal.style.opacity='1';
+      setTimeout(()=>{correctReveal.style.opacity='0';setTimeout(()=>{correctReveal.style.visibility='hidden';correctText.textContent='';},120);},200);}
 
-    function pointsPerCorrect(){
-      const numOps = countSelectedOps();
-      const pts = Math.round(90 / timeLimit * diffLevel * numOps);
-      return Math.max(1, pts);
-    }
-
-    // Visual behaviors: burst + animation 0.1s then hide
-    function showScoreBurst(value, positive){
-      // value: string like "+6" or "+0"
-      scoreBurst.textContent = value;
-      scoreBurst.style.visibility = 'visible';
-      scoreBurst.style.opacity = '1';
-      scoreBurst.style.transform = 'scale(1.5)';
-      scoreBurst.style.color = positive ? 'var(--good)' : 'var(--bad)';
-      // ensure transition for 0.1s; hide after 0.1s (100ms)
-      setTimeout(() => {
-        scoreBurst.style.transform = 'scale(0.95)';
-        scoreBurst.style.opacity = '0';
-        // hide after small delay to allow transition
-        setTimeout(() => { scoreBurst.style.visibility = 'hidden'; }, 120);
-      }, 100); // keep visible 0.1s then run shrink/fade
-    }
-
-    // Show correct answer under input for 0.2s
-    function showCorrectReveal(correct){
-      correctText.textContent = correct;
-      correctReveal.style.visibility = 'visible';
-      correctReveal.style.opacity = '1';
-      setTimeout(() => {
-        correctReveal.style.opacity = '0';
-        setTimeout(()=>{ correctReveal.style.visibility = 'hidden'; correctText.textContent = ''; }, 120);
-      }, 200); // visible 0.2s
-    }
-
-    // Game flow
     function startGame(){
-      if(playing) return;
-      timeLimit = parseInt(timeSelect.value, 10) || 30;
-      diffLevel = getSelectedDiff();
-      timeLeft = timeLimit;
-      totalScore = 0;
-      streak = 0;
-      scoreEl.textContent = totalScore;
-      streakEl.textContent = streak;
-      timeLeftEl.textContent = timeLeft;
-      messageEl.textContent = '';
-      // enable UI
-      answerInput.disabled = false; submitBtn.disabled = false; skipBtn.disabled = false;
-      startBtn.disabled = true; stopBtn.disabled = false;
-      // generate first question
-      currentQ = genQuestion();
-      questionArea.textContent = formatQ(currentQ);
-      answerInput.value = '';
-      answerInput.focus();
-      // start countdown for the whole round
-      playing = true;
-      timer = setInterval(() => {
-        timeLeft -= 1;
-        timeLeftEl.textContent = timeLeft;
-        if(timeLeft <= 0){
-          finishGame();
-        }
-      }, 1000);
+      if(playing)return;
+      timeLimit=parseInt(timeSelect.value,10)||30;diffLevel=getSelectedDiff();timeLeft=timeLimit;totalScore=0;streak=0;
+      scoreEl.textContent=totalScore;streakEl.textContent=streak;timeLeftEl.textContent=timeLeft;messageEl.textContent='';
+      answerInput.disabled=false;submitBtn.disabled=false;skipBtn.disabled=false;startBtn.disabled=true;stopBtn.disabled=false;
+      currentQ=genQuestion();questionArea.textContent=formatQ(currentQ);answerInput.value='';answerInput.focus();
+      playing=true;timer=setInterval(()=>{timeLeft--;timeLeftEl.textContent=timeLeft;if(timeLeft<=0)finishGame();},1000);
     }
 
-    function stopGame(){
-      if(!playing) return;
-      clearInterval(timer); timer = null; playing = false;
-      answerInput.disabled = true; submitBtn.disabled = true; skipBtn.disabled = true;
-      startBtn.disabled = false; stopBtn.disabled = true;
-      messageEl.textContent = 'Đã dừng';
-    }
+    function stopGame(){if(!playing)return;clearInterval(timer);playing=false;answerInput.disabled=submitBtn.disabled=skipBtn.disabled=true;
+      startBtn.disabled=false;stopBtn.disabled=true;messageEl.textContent='Đã dừng';}
 
-    function finishGame(){
-      clearInterval(timer); timer = null; playing = false;
-      answerInput.disabled = true; submitBtn.disabled = true; skipBtn.disabled = true;
-      startBtn.disabled = false; stopBtn.disabled = true;
-      showModal(totalScore);
-    }
+    function finishGame(){clearInterval(timer);playing=false;answerInput.disabled=submitBtn.disabled=skipBtn.disabled=true;
+      startBtn.disabled=false;stopBtn.disabled=true;showModal(totalScore);}
 
     function showModal(finalScore){
-      modalRoot.innerHTML = '';
-      modalRoot.style.display = 'flex';
-      modalRoot.className = 'modal-backdrop';
-      const md = document.createElement('div');
-      md.className = 'modal';
-      md.innerHTML = `
-        <h2>⏰ Hết giờ!</h2>
-        <p style="font-size:20px;margin:10px 0">Điểm của bạn: <strong>${finalScore}</strong></p>
-        <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
-          <button id="playAgain" class="btn primary">Chơi lại</button>
-          <button id="saveScore" class="btn">Lưu điểm</button>
-        </div>
-        <p style="margin-top:10px;color:var(--muted);font-size:13px">Lưu điểm vào bảng xếp hạng nếu muốn.</p>
-      `;
+      modalRoot.innerHTML='';modalRoot.style.display='flex';modalRoot.className='modal-backdrop';
+      const md=document.createElement('div');md.className='modal';
+      md.innerHTML=`<h2>⏰ Hết giờ!</h2><p style="font-size:20px;margin:10px 0">Điểm của bạn: <strong>${finalScore}</strong></p>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+      <button id="playAgain" class="btn primary">Chơi lại</button><button id="saveScore" class="btn">Lưu điểm</button></div>
+      <p style="margin-top:10px;color:var(--muted);font-size:13px">Lưu điểm vào bảng xếp hạng nếu muốn.</p>`;
       modalRoot.appendChild(md);
-      document.getElementById('playAgain').addEventListener('click', () => {
-        modalRoot.style.display = 'none'; modalRoot.innerHTML = '';
-        startGame();
-      });
-      document.getElementById('saveScore').addEventListener('click', () => {
-        const name = prompt('Nhập tên để lưu điểm (bỏ trống để hủy):');
-        if(name && name.trim()){
-          const lb = getLB();
-          lb.push({ name: name.trim(), score: finalScore });
-          lb.sort((a,b) => b.score - a.score);
+      document.getElementById('playAgain').onclick=()=>{modalRoot.style.display='none';startGame();};
+      document.getElementById('saveScore').onclick=()=>{
+        const name=prompt('Nhập tên để lưu điểm (bỏ trống để hủy):');
+        if(name&&name.trim()){
+          let lb=getLB();
+          const idx=lb.findIndex(e=>e.name===name.trim());
+          if(idx>=0)lb[idx].score=finalScore;else lb.push({name:name.trim(),score:finalScore});
+          lb.sort((a,b)=>b.score-a.score);
+          const oldTop=lb.slice(0,5).map(e=>e.name);
           saveLB(lb);
+          const newTop=getLB().slice(0,5).map(e=>e.name);
+          if(newTop.includes(name.trim()))confetti({particleCount:120,spread:80,origin:{y:0.7}});
           alert('Đã lưu vào bảng xếp hạng!');
-          modalRoot.style.display = 'none'; modalRoot.innerHTML = '';
+          modalRoot.style.display='none';
         }
-      });
+      };
     }
 
-    // Answer submit logic: one question at a time
-    answerForm.addEventListener('submit', (e) => {
+    answerForm.addEventListener('submit',e=>{
       e.preventDefault();
-      if(!playing || !currentQ) return;
-      const val = Number(answerInput.value);
-      if(Number.isNaN(val)){ messageEl.textContent = 'Vui lòng nhập số hợp lệ'; return; }
-      if(val === currentQ.correct){
-        const pts = pointsPerCorrect();
-        totalScore += pts;
-        streak += 1;
-        scoreEl.textContent = totalScore;
-        streakEl.textContent = streak;
-        messageEl.textContent = `Đúng! +${pts} điểm`;
-        showScoreBurst('+' + pts, true); // green burst for correct
-        // next question
-        currentQ = genQuestion();
-        questionArea.textContent = formatQ(currentQ);
-        answerInput.value = '';
-        answerInput.focus();
-      } else {
-        // wrong
-        messageEl.textContent = 'Sai rồi';
-        showScoreBurst('+0', false); // red +0
-        streak = 0;
-        streakEl.textContent = streak;
-        // reveal correct answer for 0.2s under input
-        showCorrectReveal(currentQ.correct);
-        // next question
-        currentQ = genQuestion();
-        questionArea.textContent = formatQ(currentQ);
-        answerInput.value = '';
-        answerInput.focus();
+      if(!playing||!currentQ)return;
+      const inputVal=answerInput.value.trim();
+      if(inputVal===''){messageEl.textContent='Vui lòng nhập đáp án!';return;}
+      const val=Number(inputVal);
+      if(Number.isNaN(val)){messageEl.textContent='Vui lòng nhập số hợp lệ';return;}
+      if(val===currentQ.correct){
+        streak++;
+        const pts=pointsPerCorrect()* (streak>1?streak:1);
+        totalScore+=pts;
+        scoreEl.textContent=totalScore;streakEl.textContent=streak;
+        messageEl.textContent=`Đúng! +${pts} điểm`;showScoreBurst('+'+pts,true);
+      }else{
+        messageEl.textContent='Sai rồi';showScoreBurst('+0',false);
+        streak=0;streakEl.textContent=streak;showCorrectReveal(currentQ.correct);
       }
+      currentQ=genQuestion();questionArea.textContent=formatQ(currentQ);answerInput.value='';answerInput.focus();
     });
 
-    skipBtn.addEventListener('click', () => {
-      if(!playing) return;
-      messageEl.textContent = 'Bỏ qua';
-      streak = 0;
-      streakEl.textContent = streak;
-      currentQ = genQuestion();
-      questionArea.textContent = formatQ(currentQ);
-      answerInput.value = '';
-      answerInput.focus();
-    });
+    skipBtn.onclick=()=>{if(!playing)return;messageEl.textContent='Bỏ qua';streak=0;streakEl.textContent=streak;
+      currentQ=genQuestion();questionArea.textContent=formatQ(currentQ);answerInput.value='';answerInput.focus();};
 
-    // Ops toggles
-    opButtons.forEach(b => {
-      const key = b.dataset.op;
-      b.addEventListener('click', () => {
-        ops[key] = !ops[key];
-        b.classList.toggle('primary');
-      });
-    });
-    // default visuals for add & sub on
-    document.querySelector('.op[data-op="add"]').classList.add('primary');
-    document.querySelector('.op[data-op="sub"]').classList.add('primary');
+    startBtn.onclick=startGame;stopBtn.onclick=stopGame;
+    resetLb.onclick=()=>{if(confirm('Bạn có chắc muốn xóa toàn bộ bảng xếp hạng?')){localStorage.removeItem(LB_KEY);renderLB();}};
 
-    // diff radio updates
-    diffRadios.forEach(r => r.addEventListener('change', () => { diffLevel = getSelectedDiff(); }));
+    opButtons.forEach(btn=>{btn.onclick=e=>{
+      e.preventDefault();const k=btn.dataset.op;ops[k]=!ops[k];btn.classList.toggle('primary',ops[k]);
+    };});
 
-    // save config (no extra persistent effect aside from immediate read)
-    saveConfig.addEventListener('click', (e) => {
-      e.preventDefault();
-      timeLimit = parseInt(timeSelect.value, 10);
-      diffLevel = getSelectedDiff();
-      messageEl.textContent = 'Đã lưu cấu hình';
-    });
-
-    // reset leaderboard
-    resetLb.addEventListener('click', () => {
-      if(confirm('Xóa toàn bộ bảng xếp hạng ?')) {
-        localStorage.removeItem(LB_KEY);
-        renderLB();
-      }
-    });
-
-    stopBtn.addEventListener('click', stopGame);
-
-    // keyboard niceties
-    window.addEventListener('keydown', (e) => {
-      if(e.key === 'Escape') answerInput.value = '';
-    });
-
-    // start button ensures at least one op selected
-    startBtn.addEventListener('click', () => {
-      if(!Object.values(ops).some(Boolean)){
-        ops.add = true;
-        document.querySelector('.op[data-op="add"]').classList.add('primary');
-      }
-      startGame();
-    });
-
-    // init UI values
-    timeLeftEl.textContent = timeLimit;
-
+    saveConfig.onclick=e=>{e.preventDefault();alert('Đã lưu setting tạm thời');};
   </script>
 </body>
 </html>
